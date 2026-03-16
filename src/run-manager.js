@@ -37,7 +37,7 @@ export class RunManager {
     };
   }
 
-  createRun({ prompt, request, model, mode = "text", workspace, sandbox = "read-only", timeoutMs }) {
+  createRun({ provider = "codex", prompt, request, model, mode = "text", workspace, sandbox = "read-only", timeoutMs }) {
     const resolvedWorkspace = path.resolve(workspace || this.config.workspaceRoot);
     if (!isWithin(this.config.workspaceRoot, resolvedWorkspace)) {
       throw new HttpError(403, "workspace is outside CODEX_WORKSPACE_ROOT");
@@ -45,7 +45,7 @@ export class RunManager {
 
     const run = {
       id: createId("run"),
-      provider: "codex",
+      provider,
       mode,
       prompt,
       request: request || null,
@@ -141,6 +141,7 @@ export class RunManager {
 
     try {
       const processHandle = this.runner.run({
+        provider: run.provider,
         model: run.model,
         request: run.request,
         prompt: run.prompt,
@@ -160,6 +161,7 @@ export class RunManager {
       run.outputPreview = preview(result.outputText);
       run.responseId = result.responseId;
       run.model = result.model || run.model;
+      run.provider = result.provider || run.provider;
       run.usage = result.usage || null;
       run.metrics = result.metrics || null;
       run.resolve?.(this.listableRun(run));

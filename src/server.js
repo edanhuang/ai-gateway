@@ -11,7 +11,8 @@ import { startSse, sendSseEvent, endSse } from "./sse.js";
 import {
   buildCodexRequestFromMessages,
   buildCodexRequestFromPrompt,
-  resolveGatewayModel
+  resolveGatewayModel,
+  resolveGatewayProvider
 } from "./codex-responses.js";
 
 function unauthorized(response) {
@@ -50,7 +51,9 @@ export function createRequestHandler({ config, logger, runManager }) {
 
       if (request.method === "POST" && url.pathname === "/internal/agent/runs") {
         const body = await readJsonBody(request);
+        const provider = resolveGatewayProvider(body.provider);
         const run = runManager.createRun({
+          provider,
           prompt: String(body.prompt || ""),
           request: buildCodexRequestFromPrompt(String(body.prompt || "")),
           model: resolveGatewayModel(body.model, config),
@@ -103,8 +106,10 @@ function authorize(request, config) {
 
 async function handleChatCompletion({ body, response, runManager, config }) {
   const prompt = buildPromptFromMessages(body.messages);
+  const provider = resolveGatewayProvider(body.provider);
   const model = resolveGatewayModel(body.model, config);
   const run = runManager.createRun({
+    provider,
     prompt,
     request: buildCodexRequestFromMessages(body.messages),
     model,
@@ -117,11 +122,14 @@ async function handleChatCompletion({ body, response, runManager, config }) {
   if (body.stream) {
     const chunkId = createId("chatcmpl");
     startSse(response);
-    sendSseEvent(response, toChatCompletionChunk({
-      id: chunkId,
-      model,
-      delta: { role: "assistant" }
-    }));
+    sendSseEvent(
+      response,
+      toChatCompletionChunk({
+        id: chunkId,
+        model,
+        delta: { role: "assistant" }
+      })
+    );
 
     let lastLength = 0;
     const interval = setInterval(() => {
@@ -133,11 +141,14 @@ async function handleChatCompletion({ body, response, runManager, config }) {
       const nextText = internal.outputText.slice(lastLength);
       if (nextText) {
         lastLength = internal.outputText.length;
-        sendSseEvent(response, toChatCompletionChunk({
-          id: chunkId,
-          model,
-          delta: { content: nextText }
-        }));
+        sendSseEvent(
+          response,
+          toChatCompletionChunk({
+            id: chunkId,
+            model,
+            delta: { content: nextText }
+          })
+        );
       }
     }, 100);
 
@@ -146,18 +157,24 @@ async function handleChatCompletion({ body, response, runManager, config }) {
       const internal = runManager.runs.get(run.id);
       const tail = internal.outputText.slice(lastLength);
       if (tail) {
-        sendSseEvent(response, toChatCompletionChunk({
+        sendSseEvent(
+          response,
+          toChatCompletionChunk({
+            id: chunkId,
+            model,
+            delta: { content: tail }
+          })
+        );
+      }
+      sendSseEvent(
+        response,
+        toChatCompletionChunk({
           id: chunkId,
           model,
-          delta: { content: tail }
-        }));
-      }
-      sendSseEvent(response, toChatCompletionChunk({
-        id: chunkId,
-        model,
-        delta: {},
-        finishReason: "stop"
-      }));
+          delta: {},
+          finishReason: "stop"
+        })
+      );
       endSse(response);
     } finally {
       clearInterval(interval);
@@ -167,11 +184,15 @@ async function handleChatCompletion({ body, response, runManager, config }) {
 
   await runManager.waitForCompletion(run.id);
   const internal = runManager.runs.get(run.id);
-  json(response, 200, toChatCompletionResponse({
-    model,
-    content: internal.outputText,
-    usage: internal.usage
-  }));
+  json(
+    response,
+    200,
+    toChatCompletionResponse({
+      model,
+      content: internal.outputText,
+      usage: internal.usage
+    })
+  );
 }
 
 function handleError({ error, response, logger, request, startedAt }) {

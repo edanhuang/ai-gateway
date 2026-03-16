@@ -1,6 +1,21 @@
-import { CodexExecutionError } from "./errors.js";
+import { CodexExecutionError, HttpError } from "./errors.js";
 
 const DEFAULT_INSTRUCTIONS = "You are Codex. Reply concisely and directly.";
+const DEFAULT_PROVIDER = "codex";
+
+export function resolveGatewayProvider(requestedProvider) {
+  const provider = String(requestedProvider || DEFAULT_PROVIDER).trim().toLowerCase();
+  if (!provider) {
+    return DEFAULT_PROVIDER;
+  }
+  if (provider !== DEFAULT_PROVIDER) {
+    throw new HttpError(400, `Unsupported provider: ${provider}`, {
+      code: "unsupported_provider",
+      provider
+    });
+  }
+  return provider;
+}
 
 export function resolveGatewayModel(requestedModel, config) {
   if (!requestedModel || requestedModel === "codex-default") {
@@ -178,6 +193,7 @@ export class CodexResponsesClient {
 
   async execute(options) {
     const startedAt = Date.now();
+    const provider = resolveGatewayProvider(options.provider);
     const model = resolveGatewayModel(options.model, this.config);
     const requestBody = {
       model,
@@ -192,6 +208,7 @@ export class CodexResponsesClient {
 
     let credentials = await this.authStore.readCredentials();
     let response = await this.fetchSseResponse({
+      provider,
       credentials,
       body: requestBody,
       signal: options.signal
@@ -200,6 +217,7 @@ export class CodexResponsesClient {
     if (response.status === 401) {
       credentials = await this.authStore.readCredentials();
       response = await this.fetchSseResponse({
+        provider,
         credentials,
         body: requestBody,
         signal: options.signal
@@ -278,6 +296,7 @@ export class CodexResponsesClient {
       outputText,
       responseId,
       model: responseModel,
+      provider,
       usage,
       metrics: {
         totalMs: Date.now() - startedAt,
@@ -286,7 +305,14 @@ export class CodexResponsesClient {
     };
   }
 
-  async fetchSseResponse({ credentials, body, signal }) {
+  async fetchSseResponse({ provider, credentials, body, signal }) {
+    if (provider !== DEFAULT_PROVIDER) {
+      throw new HttpError(400, `Unsupported provider: ${provider}`, {
+        code: "unsupported_provider",
+        provider
+      });
+    }
+
     const headers = {
       Authorization: `Bearer ${credentials.accessToken}`,
       "Content-Type": "application/json",

@@ -189,7 +189,8 @@ test("returns chat completion response", async () => {
     url: "/v1/chat/completions",
     headers: authHeaders(),
     body: {
-      model: "codex-default",
+      provider: "codex",
+      model: "gpt-5.3-codex",
       messages: [{ role: "user", content: "hello world" }]
     }
   });
@@ -205,6 +206,26 @@ test("returns chat completion response", async () => {
   });
 });
 
+test("rejects unsupported provider", async () => {
+  const { handler } = makeApp();
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/v1/chat/completions",
+    headers: authHeaders(),
+    body: {
+      provider: "kimi",
+      model: "kimi-k2",
+      messages: [{ role: "user", content: "hello world" }]
+    }
+  });
+  const payload = JSON.parse(response.bodyText);
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(payload.error.type, "invalid_request_error");
+  assert.equal(payload.error.details.provider, "kimi");
+});
+
 test("streams chat completion chunks", async () => {
   const { handler } = makeApp();
 
@@ -213,7 +234,8 @@ test("streams chat completion chunks", async () => {
     url: "/v1/chat/completions",
     headers: authHeaders(),
     body: {
-      model: "codex-default",
+      provider: "codex",
+      model: "gpt-5.3-codex",
       stream: true,
       messages: [{ role: "user", content: "hello stream" }]
     }
@@ -232,7 +254,8 @@ test("surfaces provider execution failure", async () => {
     url: "/v1/chat/completions",
     headers: authHeaders(),
     body: {
-      model: "codex-default",
+      provider: "codex",
+      model: "gpt-5.3-codex",
       messages: [{ role: "user", content: "hello failure" }]
     }
   });
@@ -250,6 +273,7 @@ test("supports internal run lifecycle", async () => {
     url: "/internal/agent/runs",
     headers: authHeaders(),
     body: {
+      provider: "codex",
       prompt: "agent run",
       mode: "text",
       workspace: process.cwd(),
@@ -283,6 +307,7 @@ test("rejects workspace outside root", async () => {
     url: "/internal/agent/runs",
     headers: authHeaders(),
     body: {
+      provider: "codex",
       prompt: "agent run",
       mode: "text",
       workspace: "/tmp",
